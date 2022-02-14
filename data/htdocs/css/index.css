@@ -1,0 +1,79 @@
+@import url(http://fonts.googleapis.com/css?family=Open+Sans:400,300,600,700);
+@import url(./bootstrap.min.css);
+
+body {
+  color: purple;
+  background-image: url('../images/bg.png');
+}
+
+th {
+  background-color: #333;
+  color: #ffffff;
+  border-top: 1px solid #678ca0;
+  vertical-align: middle;
+  height: 50px;
+}
+
+td {
+  background-color: 333;
+  border-top: 1px solid #678ca0;
+}
+
+.box {
+  border: 1px solid #678ca0;
+  padding: 0px;
+  width: 100%;
+  background-color: #333;
+  margin-bottom: 10px;
+  width: 600px;
+}
+
+.spacer {
+  margin: 0px;
+  width: 100%;
+  background-color: #333;
+}
+
+.leftspacer {
+  margin: 0px;
+  padding: 5px;
+  width: 100%;
+  text-align: left;
+  background-color: #333;
+}
+
+.serviceup {
+  color: green;
+}
+
+.servicedown {
+  color: red;
+}
+
+a {
+  text-decoration: none;
+  color: #5d83a9;
+}
+
+p.main {
+  margin-top: 5px;
+  margin-bottom: 5px;
+  text-align: center;
+  font-size: 10px;
+}
+
+a:visited {
+  color: #c39;
+}
+
+a:hover {
+  color: #f00;
+}
+
+a:active {
+  color: #c0f;
+}
+
+tr:hover {
+  background-color: #f5f5f5;
+}
