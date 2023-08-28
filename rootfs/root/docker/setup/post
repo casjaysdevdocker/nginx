@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+##@Version           :  202308272255-git
+# @@Author           :  CasjaysDev
+# @@Contact          :  CasjaysDev <docker-admin@casjaysdev.pro>
+# @@License          :  MIT
+# @@ReadME           :
+# @@Copyright        :  Copyright 2023 CasjaysDev
+# @@Created          :  Sun Aug 27 10:55:27 PM EDT 2023
+# @@File             :  post"
+# @@Description      :  script to run post"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# shellcheck shell=sh
+# shellcheck disable=SC2016
+# shellcheck disable=SC2031
+# shellcheck disable=SC2120
+# shellcheck disable=SC2155
+# shellcheck disable=SC2199
+# shellcheck disable=SC2317
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+set -ex
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Set env variables
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Main script
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+exit 0
