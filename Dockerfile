@@ -1,7 +1,7 @@
 # Docker image for nginx using the alpine template
 ARG IMAGE_NAME="nginx"
 ARG PHP_SERVER="nginx"
-ARG BUILD_DATE="Sun Aug 27 10:56:08 PM EDT 2023"
+ARG BUILD_DATE="Mon Aug 28 12:57:27 PM EDT 2023"
 ARG LANGUAGE="en_US.UTF-8"
 ARG TIMEZONE="America/New_York"
 ARG WWW_ROOT_DIR="/usr/share/httpd/default"
@@ -44,7 +44,12 @@ ARG DEFAULT_TEMPLATE_DIR
 ARG DISTRO_VERSION
 ARG PHP_VERSION
 
-ARG PACK_LIST="bash composer ${PHP_VERSION}-bcmath ${PHP_VERSION}-bz2 ${PHP_VERSION}-calendar ${PHP_VERSION}-cgi ${PHP_VERSION}-common \
+ARG PACK_LIST="bash nginx nginx-mod-http-brotli nginx-mod-http-cache-purge nginx-mod-http-dav-ext nginx-mod-http-echo \
+  nginx-mod-http-encrypted-session nginx-mod-http-fancyindex nginx-mod-http-geoip nginx-mod-http-geoip2 \
+  nginx-mod-http-headers-more nginx-mod-http-image-filter nginx-mod-http-js nginx-mod-http-lua nginx-mod-http-perl \
+  nginx-mod-http-redis2 nginx-mod-http-set-misc nginx-mod-http-shibboleth nginx-mod-http-untar nginx-mod-http-upload \
+  nginx-mod-http-upload-progress nginx-mod-http-upstream-fair nginx-mod-http-xslt-filter nginx-mod-http-zip \
+  composer ${PHP_VERSION}-bcmath ${PHP_VERSION}-bz2 ${PHP_VERSION}-calendar ${PHP_VERSION}-cgi ${PHP_VERSION}-common \
   ${PHP_VERSION}-ctype ${PHP_VERSION}-curl ${PHP_VERSION}-dba ${PHP_VERSION}-dev ${PHP_VERSION}-doc ${PHP_VERSION}-dom \
   ${PHP_VERSION}-embed ${PHP_VERSION}-enchant ${PHP_VERSION}-exif ${PHP_VERSION}-ffi ${PHP_VERSION}-fileinfo ${PHP_VERSION}-fpm \
   ${PHP_VERSION}-ftp ${PHP_VERSION}-gd ${PHP_VERSION}-gettext ${PHP_VERSION}-gmp ${PHP_VERSION}-iconv ${PHP_VERSION}-imap ${PHP_VERSION}-intl \
@@ -55,9 +60,7 @@ ARG PACK_LIST="bash composer ${PHP_VERSION}-bcmath ${PHP_VERSION}-bz2 ${PHP_VERS
   ${PHP_VERSION}-snmp ${PHP_VERSION}-soap ${PHP_VERSION}-sockets ${PHP_VERSION}-sodium ${PHP_VERSION}-sqlite3 ${PHP_VERSION}-sysvmsg \
   ${PHP_VERSION}-sysvsem ${PHP_VERSION}-sysvshm ${PHP_VERSION}-tidy ${PHP_VERSION}-tokenizer ${PHP_VERSION}-xml ${PHP_VERSION}-xmlreader \
   ${PHP_VERSION}-xmlwriter ${PHP_VERSION}-xsl ${PHP_VERSION}-zip ${PHP_VERSION}-pecl-memcached ${PHP_VERSION}-pecl-mcrypt \
-  ${PHP_VERSION}-pecl-mongodb ${PHP_VERSION}-pecl-redis \
-  apache2 apache2-ctl apache2-lua apache2-ssl apache2-ldap apache2-icons apache2-http2 \
-  apache2-error apache2-proxy apache2-brotli apache2-webdav apache2-mod-wsgi apache-mod-fcgid apache2-proxy-html"
+  ${PHP_VERSION}-pecl-mongodb ${PHP_VERSION}-pecl-redis"
 
 ENV ENV=~/.bashrc
 ENV SHELL="/bin/sh"
@@ -127,10 +130,10 @@ RUN \
   if [ -n "${PHP_VERSION}" ] && [ -d "/etc/${PHP_VERSION}" ];then ln -sf "/etc/${PHP_VERSION}" "/etc/php";fi; \
   echo ""
 
-RUN set -ex \
+RUN set -e \
   echo "Custom Settings"; \
-  bash -c "$(curl -q -LSsf "https://github.com/templatemgr/php/raw/main/install.sh")"; \
-  bash -c "$(curl -q -LSsf "https://github.com/templatemgr/apache2/raw/main/install.sh")"; \
+  curl -q -LSsf "https://github.com/templatemgr/nginx/raw/main/install.sh" -o /tmp/nginx.inst.sh && chmod 755 "/tmp/nginx.inst.sh" && bash -x "/tmp/nginx.inst.sh"; \
+  curl -q -LSsf "https://github.com/templatemgr/php/raw/main/install.sh" -o /tmp/php.inst.sh && chmod 755 "/tmp/php.inst.sh" && bash -x "/tmp/php.inst.sh"; \
   echo ""
 
 RUN \
@@ -148,7 +151,7 @@ RUN \
   set -ex; \
   echo ""
 
-RUN set -ex; \
+RUN set -e; \
   echo "Custom Applications"; \
   bash -c "$(curl -q -LSsf "https://github.com/casjay-templates/default-cgi-bin/raw/main/install.sh")"; \
   bash -c "$(curl -q -LSsf "https://github.com/casjay-templates/default-html-pages/raw/main/install.sh")"; \

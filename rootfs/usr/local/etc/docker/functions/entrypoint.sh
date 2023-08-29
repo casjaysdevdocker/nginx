@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  GEN_SCRIPT_REPLACE_VERSION
-# @@Author           :  GEN_SCRIPT_REPLACE_AUTHOR
-# @@Contact          :  GEN_SCRIPT_REPLACE_EMAIL
-# @@License          :  GEN_SCRIPT_REPLACE_LICENSE
-# @@ReadME           :  docker-entrypoint
-# @@Copyright        :  GEN_SCRIPT_REPLACE_COPYRIGHT
-# @@Created          :  GEN_SCRIPT_REPLACE_DATE
+##@Version           :  202308281453-git
+# @@Author           :  Jason Hempstead
+# @@Contact          :  git-admin@casjaysdev.pro
+# @@License          :  WTFPL
+# @@ReadME           :  docker-entrypoint --help
+# @@Copyright        :  Copyright: (c) 2023 Jason Hempstead, Casjays Developments
+# @@Created          :  Monday, Aug 28, 2023 14:53 EDT
 # @@File             :  docker-entrypoint
-# @@Description      :  GEN_SCRIPT_REPLACE_DESC
-# @@Changelog        :  GEN_SCRIPT_REPLACE_CHANGELOG
-# @@TODO             :  GEN_SCRIPT_REPLACE_TODO
-# @@Other            :  GEN_SCRIPT_REPLACE_OTHER
-# @@Resource         :  GEN_SCRIPT_REPLACE_RES
-# @@Terminal App     :  GEN_SCRIPT_REPLACE_TERMINAL
-# @@sudo/root        :  GEN_SCRIPT_REPLACE_SUDO
+# @@Description      :  functions for my docker containers
+# @@Changelog        :  newScript
+# @@TODO             :  Refactor code
+# @@Other            :
+# @@Resource         :
+# @@Terminal App     :  no
+# @@sudo/root        :  no
 # @@Template         :  functions/docker-entrypoint
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # shellcheck disable=SC2016
@@ -41,8 +41,8 @@ __is_dir_empty() { [ "$(ls -A "$1" 2>/dev/null | wc -l)" -eq 0 ] && return 0 || 
 __pcheck() { [ -n "$(which pgrep 2>/dev/null)" ] && pgrep -o "$1" &>/dev/null || return 10; }
 __file_exists_with_content() { [ -n "$1" ] && [ -f "$1" ] && [ -s "$1" ] && return 0 || return 2; }
 __sed() { sed -i 's|'$1'|'$2'|g' "$3" &>/dev/null || sed -i "s|$1|$2|g" "$3" &>/dev/null || return 1; }
-__ps() { [ -f "$(type -P ps)" ] && ps "$@" 2>/dev/null | grep -Fw " ${1:-$GEN_SCRIPT_REPLACE_APPNAME}" || return 10; }
-__pgrep() { __pcheck "${1:-GEN_SCRIPT_REPLACE_APPNAME}" || __ps "${1:-$GEN_SCRIPT_REPLACE_APPNAME}" | grep -qv ' grep' || return 10; }
+__ps() { [ -f "$(type -P ps)" ] && ps "$@" 2>/dev/null | grep -Fw " ${1:-$nginx}" || return 10; }
+__pgrep() { __pcheck "${1:-nginx}" || __ps "${1:-$nginx}" | grep -qv ' grep' || return 10; }
 __get_ip6() { ip a 2>/dev/null | grep -w 'inet6' | awk '{print $2}' | grep -vE '^::1|^fe' | sed 's|/.*||g' | head -n1 | grep '^' || echo ''; }
 __get_ip4() { ip a 2>/dev/null | grep -w 'inet' | awk '{print $2}' | grep -vE '^127.0.0' | sed 's|/.*||g' | head -n1 | grep '^' || echo '127.0.0.1'; }
 __find_file_relative() { find "$1"/* -not -path '*env/*' -not -path '.git*' -type f 2>/dev/null | sed 's|'$1'/||g' | sort -u | grep -v '^$' | grep '^' || false; }
@@ -542,7 +542,6 @@ EOF
       for f in $symlink_files; do
         __symlink "/config/postfix/$f" "/etc/postfix/$f"
         __initialize_replace_variables "/etc/postfix/$f"
-
       done
     fi
     if [ -f "/etc/postfix/main.cf" ] && [ ! -f "/run/init.d/postfix.pid" ]; then
@@ -560,23 +559,45 @@ EOF
 __initialize_web_health() {
   [ $# -eq 1 ] && [ -d "$1" ] || return 1
   [ -d "$1/health" ] || mkdir -p "$1/health"
-  [ -f "$1/health/index.txt" ] || echo 'ok' >"$1/health/index.txt"
-  [ -f "$1/health/index.json" ] || echo '{ "status": "ok" }' >"$1/health/index.json"
+  [ -f "$1/health/index.txt" ] || echo 'OK' >"$1/health/index.txt"
+  [ -f "$1/health/index.json" ] || echo '{ "status": "OK" }' >"$1/health/index.json"
+  __find_replace "REPLACE_CONTAINER_IP4" "${REPLACE_CONTAINER_IP4:-127.0.0.1}" "$1"
+  __find_replace "REPLACE_COPYRIGHT_FOOTER" "${COPYRIGHT_FOOTER:-Copyright 1999 - $(date +'%Y')}" "$1"
+  __find_replace "REPLACE_LAST_UPDATED_ON_MESSAGE" "${LAST_UPDATED_ON_MESSAGE:-$(date +'Last updated on: %Y-%m-%d at %H:%M:%S')}" "$1"
+  if [ -d "/usr/share/httpd" ]; then
+    __find_replace "REPLACE_CONTAINER_IP4" "${REPLACE_CONTAINER_IP4:-127.0.0.1}" "/usr/share/httpd"
+    __find_replace "REPLACE_COPYRIGHT_FOOTER" "${COPYRIGHT_FOOTER:-Copyright 1999 - $(date +'%Y')}" "/usr/share/httpd"
+    __find_replace "REPLACE_LAST_UPDATED_ON_MESSAGE" "${LAST_UPDATED_ON_MESSAGE:-$(date +'Last updated on: %Y-%m-%d at %H:%M:%S')}" "/usr/share/httpd"
+  fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 #  file_dir
 __initialize_replace_variables() {
-  [ $# -ne 0 ] || return 1 # REPLACE_WWW_USER REPLACE_WWW_GROUP
-  [ -n "$HOSTNAME" ] && __find_replace "REPLACE_SERVER_NAME" "$HOSTNAME" "$1"
-  [ -n "$DATA_DIR" ] && __find_replace "REPLACE_RUN_DIR" "${RUN_DIR:-/run}" "$1"
-  [ -n "$DATA_DIR" ] && __find_replace "REPLACE_LOG_DIR" "${LOG_DIR:-/data/log}" "$1"
-  [ -n "$DATA_DIR" ] && __find_replace "REPLACE_DATA_DIR" "${DATA_DIR:-/data}" "$1"
-  [ -n "$CONF_DIR" ] && __find_replace "REPLACE_CONFIG_DIR" "${CONF_DIR:-/config}" "$1"
-  [ -n "$SERVICE_PORT" ] && __find_replace "REPLACE_SERVER_PORT" "${SERVICE_PORT:-80}" "$1"
-  [ -n "$CONTAINER_NAME" ] && __find_replace "REPLACE_SERVER_SOFTWARE" "${CONTAINER_NAME:-docker}" "$1"
+  [ $# -ne 0 ] || return 1 # REPLACE_GITEA_PROTO
+  __find_replace "REPLACE_SSL_DIR" "${SSL_DIR:-/etc/ssl}" "$1"
+  __find_replace "REPLACE_RANDOM_ID" "$(__random_password 8)" "$1"
+  __find_replace "REPLACE_TZ" "${TZ:-${TIMEZONE:-America/New_York}}" "$1"
+  __find_replace "REPLACE_SERVER_PROTO" "${SERVICE_PROTOCOL:-http}" "$1"
+  __find_replace "REPLACE_SERVER_SITE_TITLE" "${SERVER_SITE_TITLE:-CasjaysDev - Docker Container}" "$1"
+  __find_replace "REPLACE_TMP_DIR" "${TMP_DIR:-/tmp/$SERVICE_NAME}" "$1"
+  __find_replace "REPLACE_RUN_DIR" "${RUN_DIR:-/run/$SERVICE_NAME}" "$1"
+  __find_replace "REPLACE_LOG_DIR" "${LOG_DIR:-/data/log/$SERVICE_NAME}" "$1"
+  __find_replace "REPLACE_ETC_DIR" "${ETC_DIR:-/etc/$SERVICE_NAME}" "$1"
+  __find_replace "REPLACE_DATA_DIR" "${DATA_DIR:-/data/$SERVICE_NAME}" "$1"
+  __find_replace "REPLACE_CONFIG_DIR" "${CONF_DIR:-/config/$SERVICE_NAME}" "$1"
+  __find_replace "REPLACE_EMAIL_RELAY" "${EMAIL_RELAY:-172.17.0.1}" "$1"
+  __find_replace "REPLACE_SERVER_ADMIN" "${SERVER_ADMIN:-root@${EMAIL_DOMAIN:-${FULL_DOMAIN_NAME:-$HOSTNAME}}}" "$1"
+  __find_replace "REPLACE_WWW_USER" "${SERVICE_USER:-${RUNAS_USER:-root}}" "$1"
+  __find_replace "REPLACE_APP_USER" "${SERVICE_USER:-${RUNAS_USER:-root}}" "$1"
+  __find_replace "REPLACE_WWW_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-${RUNAS_USER:-root}}}" "$1"
+  __find_replace "REPLACE_APP_GROUP" "${SERVICE_GROUP:-${SERVICE_USER:-${RUNAS_USER:-root}}}" "$1"
+  [ -n "$SERVICE_PORT" ] && __find_replace "REPLACE_SERVER_PORT" "${SERVICE_PORT:-80}" "$1"             # ||{ [ "$DEBUGGER" = "on" ] && echo "SERVICE_PORT is not set": }
+  [ -n "$HOSTNAME" ] && __find_replace "REPLACE_SERVER_NAME" "${FULL_DOMAIN_NAME:-$HOSTNAME}" "$1"      # ||{ [ "$DEBUGGER" = "on" ] && echo "HOSTNAME is not set": }
+  [ -n "$CONTAINER_NAME" ] && __find_replace "REPLACE_SERVER_SOFTWARE" "${CONTAINER_NAME:-docker}" "$1" # ||{ [ "$DEBUGGER" = "on" ] && echo "CONTAINER_NAME is not set": }
   [ -n "$WWW_ROOT_DIR" ] && __find_replace "REPLACE_SERVER_WWW_DIR" "${WWW_ROOT_DIR:-/usr/share/httpd/default}" "$1"
-  [ -n "$SERVER_ADMIN" ] && __find_replace "REPLACE_SERVER_ADMIN" "${SERVER_ADMIN:-root@${sysname:-$HOSTNAME}}" "$1"
   [ -n "$SERVICE_NAME" ] && [ -n "$DATABASE_DIR" ] && __find_replace "REPLACE_DATABASE_DIR" "${DATABASE_DIR:-/data/db/$SERVICE_NAME}" "$1"
+  mkdir -p "${TMP_DIR:-/tmp/$SERVICE_NAME}" "${RUN_DIR:-/run/$SERVICE_NAME}" "${LOG_DIR:-/data/log/$SERVICE_NAME}"
+  chmod -f 777 "${TMP_DIR:-/tmp/$SERVICE_NAME}" "${RUN_DIR:-/run/$SERVICE_NAME}" "${LOG_DIR:-/data/log/$SERVICE_NAME}"
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_system_etc() {
@@ -711,6 +732,18 @@ __initialize_ssl_certs() {
       __create_ssl_cert
     fi
     type update-ca-certificates &>/dev/null && update-ca-certificates
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__start_php_dev_server() {
+  if [ "$2" = "yes" ]; then
+    if [ -d "/usr/share/httpd" ]; then
+      find "/usr/share/httpd" -type f -not -path '.git*' -iname '*.php' -exec sed -i 's|[<].*SERVER_ADDR.*[>]|'${CONTAINER_IP4_ADDRESS:-127.0.0.1}'|g' {} \; 2>/dev/null
+    fi
+    if ! echo "$1" | grep -q "^/usr/share/httpd"; then
+      find "$1" -type f -not -path '.git*' -iname '*.php' -exec sed -i 's|[<].*SERVER_ADDR.*[>]|'${CONTAINER_IP4_ADDRESS:-127.0.0.1}'|g' {} \; 2>/dev/null
+    fi
+    php -S 0.0.0.0:$PHP_DEV_SERVER_PORT -t "$1"
   fi
 }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

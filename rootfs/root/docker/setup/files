@@ -1,12 +1,12 @@
 #!/usr/bin/env sh
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202308272255-git
+##@Version           :  202308281256-git
 # @@Author           :  CasjaysDev
 # @@Contact          :  CasjaysDev <docker-admin@casjaysdev.pro>
 # @@License          :  MIT
 # @@ReadME           :
 # @@Copyright        :  Copyright 2023 CasjaysDev
-# @@Created          :  Sun Aug 27 10:55:27 PM EDT 2023
+# @@Created          :  Mon Aug 28 12:56:03 PM EDT 2023
 # @@File             :  files"
 # @@Description      :  script to run files"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
