@@ -22,9 +22,9 @@
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup debugging - https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
 [ -f "/config/.debug" ] && [ -z "$DEBUGGER_OPTIONS" ] && export DEBUGGER_OPTIONS="$(<"/config/.debug")" || DEBUGGER_OPTIONS="${DEBUGGER_OPTIONS:-}"
-{ [ "$DEBUGGER" = "on" ] || [ -f "/config/.debug" ]; } && echo "Enabling debugging" && set -xo pipefail -x$DEBUGGER_OPTIONS && export -o pipefail
+{ [ "$DEBUGGER" = "on" ] || [ -f "/config/.debug" ]; } && echo "Enabling debugging" && set -xo pipefail -x$DEBUGGER_OPTIONS && export DEBUGGER="on" || set -o pipefail
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__remove_extra_spaces() { sed 's/\( \)*/␁/g;s|^ ||g'; }
+__remove_extra_spaces() { sed 's/\( \)*/\1/g;s|^ ||g'; }
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __printf_space() {
   local pad=$(printf '%0.1s' " "{1..60})
@@ -66,10 +66,10 @@ __clean_variables() {
   local var="$*"
   var="${var#"${var%%[![:space:]]*}"}" # remove leading whitespace characters
   var="${var%"${var##*[![:space:]]}"}" # remove trailing whitespace characters
-  var="$(printf '%s\n' "$var" | sed 's/\( \)*/␁/g;s|^ ||g')"
+  var="$(printf '%s\n' "$var" | sed 's/\( \)*/\1/g;s|^ ||g')"
   printf '%s' "$var" | grep -v '^$'
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Auto-detect services from init.d scripts
 __auto_detect_services() {
   local discovered_services="tini"  # Always include tini as init
@@ -172,7 +172,6 @@ __no_exit() {
   # Wait for background processes
   wait
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __trim() {
   local var="${*//;/ }"
@@ -267,7 +266,7 @@ __certbot() {
   [ "$CERT_BOT_ENABLED" = "true" ] || { export CERT_BOT_ENABLED="" && return 10; }
   [ -n "$CERT_BOT_MAIL" ] || { echo "The variable CERT_BOT_MAIL is not set" >&2 && return 1; }
   [ -n "$CERTBOT_DOMAINS" ] || { echo "The variable CERTBOT_DOMAINS is not set" >&2 && return 1; }
-  for domain in $CERTBOT_DOMAINS; do
+  for domain in $$CERTBOT_DOMAINS; do
     [ -n "$domain" ] && ADD_CERTBOT_DOMAINS+="-d $domain "
   done
   [ -n "$is_renewal" ] && options="renew" ADD_CERTBOT_DOMAINS="" || options="certonly"
@@ -351,7 +350,7 @@ __create_ssl_cert() {
         -days $VALID_FOR \
         -nodes \
         -x509 \
-        -subj "/C=${COUNTRY// /\ }/ST=${STATE// /\ }/L=${CITY// /\ }/O=${ORG// /\ }/OU=${UNIT// /\ }/CN=${CN// /\ }" \
+        -subj "/C=${COUNTRY// /\\ }/ST=${STATE// /\\ }/L=${CITY// /\\ }/O=${ORG// /\\ }/OU=${UNIT// /\\ }/CN=${CN// /\\ }" \
         -keyout "$SSL_KEY" \
         -out "$SSL_CERT"
     fi
@@ -363,137 +362,83 @@ __create_ssl_cert() {
     return 2
   fi
 }
-
-# Enhanced __start_init_scripts function with better error handling and monitoring
-__start_init_scripts() {
-  set -e
-  trap 'echo "❌ Fatal error in service startup - killing container"; rm -f /run/__start_init_scripts.pid; kill -TERM 1' ERR
-  
-  [ "$1" = " " ] && shift 1
-  [ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
-  
-  local basename=""
-  local init_pids=""
-  local retstatus="0"
-  local initStatus="0"
-  local failed_services=""
-  local successful_services=""
-  local init_dir="${1:-/usr/local/etc/docker/init.d}"
-  local init_count="$(find "$init_dir" -name "*.sh" 2>/dev/null | wc -l)"
-  
-  if [ -n "$SERVICE_DISABLED" ]; then
-    echo "$SERVICE_DISABLED is disabled"
-    unset SERVICE_DISABLED
-    return 0
-  fi
-  
-  echo "🚀 Starting container services initialization"
-  echo "📂 Init directory: $init_dir"
-  echo "📊 Services to start: $init_count"
-  
-  # Create a fresh PID file to track this startup session
-  echo $$ > /run/__start_init_scripts.pid
-  
-  mkdir -p "/tmp" "/run" "/run/init.d" "/usr/local/etc/docker/exec" "/data/logs/init"
-  chmod -R 777 "/tmp" "/run" "/run/init.d" "/usr/local/etc/docker/exec" "/data/logs/init"
-  
-  if [ "$init_count" -eq 0 ] || [ ! -d "$init_dir" ]; then
-    echo "⚠️  No init scripts found in $init_dir"
-    # Still create a minimal keep-alive for containers without services
-    while true; do 
-      echo "$(date): No services - container keep-alive" >> "/data/logs/start.log"
-      sleep 3600
-    done &
-  else
-    echo "📋 Found $init_count service scripts to execute"
-    
-    if [ -d "$init_dir" ]; then
-      # Remove sample files  
-      find "$init_dir" -name "*.sample" -delete 2>/dev/null
-      
-      # Make scripts executable
-      find "$init_dir" -name "*.sh" -exec chmod 755 {} \; 2>/dev/null
-      
-      # Execute scripts in numerical/alphabetical order
-      for init in "$init_dir"/*.sh; do
-        if [ -x "$init" ]; then
-          basename="$(basename "$init")"
-          service="$(printf '%s' "$basename" | sed 's/^[0-9]*-//;s|\.sh$||g')"
-          
-          printf '\n🔧 Executing service script: %s (service: %s)\n' "$init" "$service"
-          
-          # Execute the init script and capture its exit code
-          if eval "$init"; then
-            sleep 5  # Give service more time to start properly
-            
-            # Verify the service actually started by checking for PID
-            retPID=$(__get_pid "$service")
-            if [ -n "$retPID" ]; then
-              initStatus="0"
-              successful_services="$successful_services $service"
-              printf '✅ Service %s started successfully - PID: %s\n' "$service" "$retPID"
-            else
-              # Service script succeeded but no PID found - this is suspicious
-              initStatus="1"
-              failed_services="$failed_services $service"
-              printf '⚠️  Service %s script completed but no PID found\n' "$service"
-            fi
-          else
-            # Service script failed
-            script_exit_code="$?"
-            initStatus="1" 
-            failed_services="$failed_services $service"
-            printf '❌ Init script %s failed with exit code %s\n' "$init" "$script_exit_code"
-          fi
-        else
-          printf '⚠️  Script %s is not executable, skipping\n' "$init"
-        fi
-        
-        retstatus=$(($retstatus + $initStatus))
-        printf '\n'
-      done
-      
-      printf '📊 Service startup summary:\n'
-      printf '   ✅ Successful: %s\n' "${successful_services:-none}"
-      printf '   ❌ Failed: %s\n' "${failed_services:-none}"
-      printf '   📈 Total status code: %s\n' "$retstatus"
-      
-      # If any services failed to start, terminate the container immediately
-      if [ $retstatus -gt 0 ]; then
-        echo ""
-        echo "💥 Service startup failures detected!"
-        echo "🔄 Container will terminate to allow orchestrator restart"
-        echo "📝 Check container logs for detailed failure information"
-        
-        # Write failure information to log
-        {
-          echo "$(date): SERVICE STARTUP FAILURE"
-          echo "Successful services: $successful_services"
-          echo "Failed services: $failed_services" 
-          echo "Total errors: $retstatus"
-        } >> "/data/logs/start.log"
-        
-        # Clean up and exit
-        rm -f /run/__start_init_scripts.pid
-        exit $retstatus
-      fi
-    fi
-  fi
-  
-  # Write successful startup status to log
-  {
-    echo "$(date): Container startup completed successfully"
-    echo "Active services: $successful_services"
-    [ -n "$failed_services" ] && echo "Failed services: $failed_services" 
-    echo "Status code: $retstatus"
-  } >> "/data/logs/start.log"
-  
-  printf '\n🎉 All services initialized successfully!\n'
-  printf '🔍 Service monitoring will now begin...\n\n'
-  return $retstatus
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_apache() {
+  local etc_dir="" conf_dir="" conf_dir="" www_dir="" apache_bin=""
+  etc_dir="/etc/${1:-apache2}"
+  conf_dir="/config/${1:-apache2}"
+  www_dir="${WWW_ROOT_DIR:-/data/htdocs}"
+  apache_bin="$(type -P 'httpd' || type -P 'apache2')"
+  #
+  return 0
 }
-
-# Additional functions continue here (keeping the rest of the original functions)...
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_nginx() {
+  local etc_dir="/etc/${1:-nginx}"
+  local conf_dir="/config/${1:-nginx}"
+  local www_dir="${WWW_ROOT_DIR:-/data/htdocs}"
+  local nginx_bin="$(type -P 'nginx')"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_php() {
+  local etc_dir="/etc/${1:-php}"
+  local conf_dir="/config/${1:-php}"
+  local php_bin="${PHP_BIN_DIR:-$(__find_php_bin)}"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_mysql() {
+  local db_dir="/data/db/mysql"
+  local etc_dir="${home:-/etc/${1:-mysql}}"
+  local db_user="${SERVICE_USER:-mysql}"
+  local conf_dir="/config/${1:-mysql}"
+  local user_name="${MARIADB_USER:-root}"
+  local user_pass="${MARIADB_PASSWORD:-$MARIADB_ROOT_PASSWORD}"
+  local user_db="${MARIADB_DATABASE}"
+  local root_pass="$MARIADB_ROOT_PASSWORD"
+  local mysqld_bin="$(type -P 'mysqld')"
+  return 0
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_mongodb() {
+  local home="${MONGODB_CONFIG_FILE:-$(__find_mongodb_conf)}"
+  local user_name="${INITDB_ROOT_USERNAME:-root}"
+  local user_pass="${MONGO_INITDB_ROOT_PASSWORD:-$_ROOT_PASSWORD}"
+  return
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_postgres() {
+  local home="${PGSQL_CONFIG_FILE:-$(__find_pgsql_conf)}"
+  local user_name="${POSTGRES_USER:-root}"
+  local user_pass="${POSTGRES_PASSWORD:-$POSTGRES_ROOT_PASSWORD}"
+  return
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__init_couchdb() {
+  local home="${COUCHDB_CONFIG_FILE:-$(__find_couchdb_conf)}"
+  local user_name="${COUCHDB_USER:-root}"
+  local user_pass="${COUCHDB_PASSWORD:-$SET_RANDOM_PASS}"
+  return
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Show available init functions
+__init_help() {
+  echo '
+__certbot
+__update_ssl_certs
+__create_ssl_cert
+'
+  return
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__run_once() {
+  if [ "$CONFIG_DIR_INITIALIZED" = "false" ] || [ "$DATA_DIR_INITIALIZED" = "false" ] || [ ! -f "/config/.docker_has_run" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # run program ever n minutes
 __cron() {
@@ -574,10 +519,6 @@ __file_copy() {
     fi
   fi
 }
-
-# The rest of the original functions continue unchanged...
-# [I'm including key functions but truncating for length - the full file would include all original functions]
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __generate_random_uids() {
   local set_random_uid="$(seq 3000 5000 | sort -R | head -n 1)"
@@ -669,6 +610,7 @@ __proc_check() {
     return 1
   fi
 }
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __set_user_group_id() {
   local exitStatus=0
@@ -798,7 +740,134 @@ __exec_command() {
   fi
   return $exitCode
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Setup the server init scripts
+__start_init_scripts() {
+  # Let individual scripts handle their own errors - don't use global error traps
+  
+  [ "$1" = " " ] && shift 1
+  [ "$DEBUGGER" = "on" ] && echo "Enabling debugging" && set -o pipefail -x$DEBUGGER_OPTIONS || set -o pipefail
+  
+  local basename=""
+  local init_pids=""
+  local retstatus="0"
+  local initStatus="0"
+  local failed_services=""
+  local successful_services=""
+  local init_dir="${1:-/usr/local/etc/docker/init.d}"
+  local init_count="$(find "$init_dir" -name "*.sh" 2>/dev/null | wc -l)"
+  
+  if [ -n "$SERVICE_DISABLED" ]; then
+    echo "$SERVICE_DISABLED is disabled"
+    unset SERVICE_DISABLED
+    return 0
+  fi
+  
+  echo "🚀 Starting container services initialization"
+  echo "📂 Init directory: $init_dir"
+  echo "📊 Services to start: $init_count"
+  
+  # Create a fresh PID file to track this startup session
+  echo $$ > /run/__start_init_scripts.pid
+  
+  mkdir -p "/tmp" "/run" "/run/init.d" "/usr/local/etc/docker/exec" "/data/logs/init"
+  chmod -R 777 "/tmp" "/run" "/run/init.d" "/usr/local/etc/docker/exec" "/data/logs/init"
+  
+  if [ "$init_count" -eq 0 ] || [ ! -d "$init_dir" ]; then
+    echo "⚠️  No init scripts found in $init_dir"
+    # Still create a minimal keep-alive for containers without services
+    while true; do 
+      echo "$(date): No services - container keep-alive" >> "/data/logs/start.log"
+      sleep 3600
+    done &
+  else
+    echo "📋 Found $init_count service scripts to execute"
+    
+    if [ -d "$init_dir" ]; then
+      # Remove sample files  
+      find "$init_dir" -name "*.sample" -delete 2>/dev/null
+      
+      # Make scripts executable
+      find "$init_dir" -name "*.sh" -exec chmod 755 {} \; 2>/dev/null
+      
+      # Execute scripts in numerical/alphabetical order
+      for init in "$init_dir"/*.sh; do
+        if [ -x "$init" ]; then
+          basename="$(basename "$init")"
+          service="$(printf '%s' "$basename" | sed 's/^[0-9]*-//;s|\.sh$||g')"
+          
+          printf '\n🔧 Executing service script: %s (service: %s)\n' "$init" "$service"
+          
+          # Execute the init script and capture its exit code
+          if eval "$init"; then
+            sleep 5  # Give service more time to start properly
+            
+            # Verify the service actually started by checking for PID
+            retPID=$(__get_pid "$service")
+            if [ -n "$retPID" ]; then
+              initStatus="0"
+              successful_services="$successful_services $service"
+              printf '✅ Service %s started successfully - PID: %s\n' "$service" "$retPID"
+            else
+              # Service script succeeded but no PID found - this is suspicious
+              initStatus="1"
+              failed_services="$failed_services $service"
+              printf '⚠️  Service %s script completed but no PID found\n' "$service"
+            fi
+          else
+            # Service script failed
+            script_exit_code="$?"
+            initStatus="1" 
+            failed_services="$failed_services $service"
+            printf '❌ Init script %s failed with exit code %s\n' "$init" "$script_exit_code"
+          fi
+        else
+          printf '⚠️  Script %s is not executable, skipping\n' "$init"
+        fi
+        
+        retstatus=$(($retstatus + $initStatus))
+        printf '\n'
+      done
+      
+      printf '📊 Service startup summary:\n'
+      printf '   ✅ Successful: %s\n' "${successful_services:-none}"
+      printf '   ❌ Failed: %s\n' "${failed_services:-none}"
+      printf '   📈 Total status code: %s\n' "$retstatus"
+      
+      # If any services failed to start, terminate the container immediately
+      if [ $retstatus -gt 0 ]; then
+        echo ""
+        echo "💥 Service startup failures detected!"
+        echo "🔄 Container will terminate to allow orchestrator restart"
+        echo "📝 Check container logs for detailed failure information"
+        
+        # Write failure information to log
+        {
+          echo "$(date): SERVICE STARTUP FAILURE"
+          echo "Successful services: $successful_services"
+          echo "Failed services: $failed_services" 
+          echo "Total errors: $retstatus"
+        } >> "/data/logs/start.log"
+        
+        # Clean up and exit
+        rm -f /run/__start_init_scripts.pid
+        exit $retstatus
+      fi
+    fi
+  fi
+  
+  # Write successful startup status to log
+  {
+    echo "$(date): Container startup completed successfully"
+    echo "Active services: $successful_services"
+    [ -n "$failed_services" ] && echo "Failed services: $failed_services" 
+    echo "Status code: $retstatus"
+  } >> "/data/logs/start.log"
+  
+  printf '\n🎉 All services initialized successfully!\n'
+  printf '🔍 Service monitoring will now begin...\n\n'
+  return $retstatus
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __setup_mta() {
   [ -d "/etc/ssmtp" ] || [ -d "/etc/postfix" ] || return
@@ -812,12 +881,111 @@ __setup_mta() {
   local account_user="${SERVER_ADMIN//@*/}"
   local account_domain="${EMAIL_DOMAIN//*@/}"
   echo "$EMAIL_RELAY" | grep '[0-9][0-9]' || relay_port="465"
-  # sSMTP relay setup and postfix setup would continue here...
-  # Simplified for length
+  ################# sSMTP relay setup
+  if [ -n "$(type -P 'ssmtp')" ]; then
+    [ -d "/config/ssmtp" ] || mkdir -p "/config/ssmtp"
+    [ -f "/etc/ssmtp/ssmtp.conf" ] && __rm "/etc/ssmtp/ssmtp.conf"
+    symlink_files="$(__find_file_relative "/config/ssmtp")"
+    if [ ! -f "/config/ssmtp/ssmtp.conf" ]; then
+      cat <<EOF | tee -p "/config/ssmtp/ssmtp.conf" >/dev/null
+# ssmtp configuration.
+root=${account_user:-root}@${account_domain:-$HOSTNAME}
+mailhub=${relay_server:-172.17.0.1}:$relay_port
+rewriteDomain=$local_hostname
+hostname=$local_hostname
+TLS_CA_FILE=/etc/ssl/certs/ca-certificates.crt
+UseTLS=Yes
+UseSTARTTLS=No
+AuthMethod=LOGIN
+FromLineOverride=yes
+#AuthUser=username
+#AuthPass=password
+
+EOF
+    fi
+    if [ -f "/config/ssmtp/ssmtp.conf" ]; then
+      for file in $symlink_files; do
+        __symlink "/config/ssmtp/$file" "/etc/ssmtp/$file"
+        __initialize_replace_variables "/etc/ssmtp/$file"
+      done
+      if [ -f "/etc/ssmtp/revaliases" ] && [ ! -f "/config/ssmtp/revaliases" ]; then
+        mv -f "/etc/ssmtp/revaliases" "/config/ssmtp/revaliases"
+        __symlink "/config/ssmtp/revaliases" "/etc/ssmtp/revaliases"
+        __initialize_replace_variables "/etc/ssmtp/revaliases"
+      else
+        touch "/config/ssmtp/revaliases"
+        __symlink "/config/ssmtp/revaliases" "/etc/ssmtp/revaliases"
+        __initialize_replace_variables "/etc/ssmtp/revaliases"
+      fi
+      echo "Done setting up ssmtp"
+    fi
+
+    ################# postfix relay setup
+  elif [ -n "$(type -P 'postfix')" ]; then
+    [ -d "/etc/postfix" ] || mkdir -p "/etc/postfix"
+    [ -d "/config/postfix" ] || mkdir -p "/config/postfix"
+    [ -f "/etc/postfix/main.cf" ] && __rm "/etc/postfix/main.cf"
+    symlink_files="$(__find_file_relative "/config/postfix")"
+    if [ ! -f "/config/postfix/main.cf" ]; then
+      cat <<EOF | tee -p "/config/postfix/main.cf" >/dev/null
+# postfix configuration.
+smtpd_banner = \$myhostname ESMTP email server
+compatibility_level = 2
+inet_protocols = ipv4
+inet_interfaces = all
+mydestination =
+local_transport=error: local delivery disabled
+mynetworks = /etc/postfix/mynetworks
+alias_maps = hash:/etc/postfix/aliases
+alias_database = hash:/etc/postfix/aliases
+transport_maps = hash:/etc/postfix/transport
+virtual_alias_maps = hash:/etc/postfix/virtual
+relay_domains = hash:/etc/postfix/mydomains, regexp:/etc/postfix/mydomains.pcre
+tls_random_source = dev:/dev/urandom
+smtp_use_tls = yes
+smtpd_use_tls = yes
+smtpd_tls_session_cache_database = btree:/etc/postfix/smtpd_scache
+smtpd_tls_exclude_ciphers = aNULL, eNULL, EXPORT, DES, RC4, MD5, PSK, aECDH, EDH-DSS-DES-CBC3-SHA, EDH-RSA-DES-CBC3-SHA, KRB5-DES, CBC3-SHA
+smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination
+append_dot_mydomain = yes
+myorigin = $local_hostname
+myhostname = $local_hostname
+relayhost = [$relay_server]:$relay_port
+
+EOF
+    fi
+    if [ -d "/config/postfix" ]; then
+      for f in $symlink_files; do
+        __symlink "/config/postfix/$f" "/etc/postfix/$f"
+      done
+      __initialize_replace_variables "/etc/postfix"
+      touch "/config/postfix/aliases" "/config/postfix/mynetworks" "/config/postfix/transport"
+      touch "/config/postfix/mydomains.pcre" "/config/postfix/mydomains" "/config/postfix/virtual"
+      postmap "/config/aliases" "/config/mynetworks" "/config/transport" &>/dev/null
+      postmap "/config/mydomains.pcre" "/config/mydomains" "/config/virtual" &>/dev/null
+    fi
+    if [ -f "/etc/postfix/main.cf" ] && [ ! -f "/run/init.d/postfix.pid" ]; then
+      SERVICES_LIST+="postfix "
+      if [ ! -f "/run/init.d/postfix.pid" ]; then
+        __exec_service postfix start
+      fi
+      echo "Done setting up postfix"
+    fi
+  fi
+  [ -f "/root/dead.letter" ] && __rm "/root/dead.letter"
   return $exitCode
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__initialize_web_health() {
+  local www_dir="${1:-${WWW_ROOT_DIR:-/usr/local/share/httpd/default}}"
+  if [ -d "$www_dir" ]; then
+    __find_replace "REPLACE_CONTAINER_IP4" "${REPLACE_CONTAINER_IP4:-127.0.0.1}" "/usr/local/share/httpd"
+    __find_replace "REPLACE_COPYRIGHT_FOOTER" "${COPYRIGHT_FOOTER:-Copyright 1999 - $(date +'%Y')}" "/usr/local/share/httpd"
+    __find_replace "REPLACE_LAST_UPDATED_ON_MESSAGE" "${LAST_UPDATED_ON_MESSAGE:-$(date +'Last updated on: %Y-%m-%d at %H:%M:%S')}" "/usr/local/share/httpd"
+  fi
+}
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#  file_dir
 __initialize_replace_variables() {
   local set_dir="" get_dir="$*"
   [ $# -ne 0 ] || return 1
@@ -851,10 +1019,14 @@ __initialize_replace_variables() {
     [ -n "$CONTAINER_NAME" ] && __find_replace "REPLACE_SERVER_SOFTWARE" "${CONTAINER_NAME:-docker}" "$set_dir"
     [ -n "$WWW_ROOT_DIR" ] && __find_replace "REPLACE_SERVER_WWW_DIR" "${WWW_ROOT_DIR:-/usr/local/share/httpd/default}" "$set_dir"
   done
+  if [ -n "$WWW_ROOT_DIR" ] && [ "$set_dir" != "$WWW_ROOT_DIR" ] && [ -d "$WWW_ROOT_DIR" ]; then
+    __find_replace "REPLACE_CONTAINER_IP4" "${REPLACE_CONTAINER_IP4:-127.0.0.1}" "$WWW_ROOT_DIR"
+    __find_replace "REPLACE_COPYRIGHT_FOOTER" "${COPYRIGHT_FOOTER:-Copyright 1999 - $(date +'%Y')}" "$WWW_ROOT_DIR"
+    __find_replace "REPLACE_LAST_UPDATED_ON_MESSAGE" "${LAST_UPDATED_ON_MESSAGE:-$(date +'Last updated on: %Y-%m-%d at %H:%M:%S')}" "$WWW_ROOT_DIR"
+  fi
   mkdir -p "${TMP_DIR:-/tmp/$SERVICE_NAME}" "${RUN_DIR:-/run/$SERVICE_NAME}" "${LOG_DIR:-/data/logs/$SERVICE_NAME}"
   chmod -f 777 "${TMP_DIR:-/tmp/$SERVICE_NAME}" "${RUN_DIR:-/run/$SERVICE_NAME}" "${LOG_DIR:-/data/logs/$SERVICE_NAME}"
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_database() {
   [ "$IS_DATABASE_SERVICE" = "yes" ] || [ "$USES_DATABASE_SERVICE" = "yes" ] || return 0
@@ -873,8 +1045,19 @@ __initialize_database() {
   __find_replace "REPLACE_DATABASE_ROOT_PASS" "$db_admin_pass" "$dir"
   __find_replace "REPLACE_DATABASE_NAME" "$DATABASE_NAME" "$dir"
   __find_replace "REPLACE_DATABASE_DIR" "$DATABASE_DIR" "$dir"
+  if echo "$dir" | grep -q '^/etc'; then
+    __find_replace "REPLACE_USER_NAME" "$db_normal_user" "/etc"
+    __find_replace "REPLACE_USER_PASS" "$db_normal_pass" "/etc"
+    __find_replace "REPLACE_DATABASE_USER" "$db_normal_user" "/etc"
+    __find_replace "REPLACE_DATABASE_PASS" "$db_normal_pass" "/etc"
+    __find_replace "REPLACE_ROOT_ADMIN" "$db_admin_user" "/etc"
+    __find_replace "REPLACE_ROOT_PASS" "$db_admin_pass" "/etc"
+    __find_replace "REPLACE_DATABASE_ROOT_USER" "$db_admin_user" "/etc"
+    __find_replace "REPLACE_DATABASE_ROOT_PASS" "$db_admin_pass" "/etc"
+    __find_replace "REPLACE_DATABASE_NAME" "$DATABASE_NAME" "/etc"
+    __find_replace "REPLACE_DATABASE_DIR" "$DATABASE_DIR" "/etc"
+  fi
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_db_users() {
   [ "$IS_DATABASE_SERVICE" = "yes" ] || [ "$USES_DATABASE_SERVICE" = "yes" ] || return 0
@@ -888,7 +1071,6 @@ __initialize_db_users() {
   export DATABASE_PASS_ROOT="$db_admin_pass"
   export db_normal_user db_normal_pass db_admin_user db_admin_pass
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_system_etc() {
   local conf_dir="$1"
@@ -916,7 +1098,6 @@ __initialize_system_etc() {
     done
   fi
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_custom_bin_dir() {
   local SET_USR_BIN=""
@@ -935,7 +1116,6 @@ __initialize_custom_bin_dir() {
     unset create_bin_template create_bin_name SET_USR_BIN
   fi
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_default_templates() {
   if [ -n "$DEFAULT_TEMPLATE_DIR" ]; then
@@ -956,7 +1136,6 @@ __initialize_default_templates() {
     fi
   fi
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_config_dir() {
   if [ -n "$DEFAULT_CONF_DIR" ]; then
@@ -977,7 +1156,6 @@ __initialize_config_dir() {
     fi
   fi
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_data_dir() {
   if [ -d "/data" ]; then
@@ -998,7 +1176,6 @@ __initialize_data_dir() {
     fi
   fi
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_www_root() {
   local WWW_INIT=""
@@ -1012,7 +1189,6 @@ __initialize_www_root() {
   fi
   __initialize_web_health "$WWW_ROOT_DIR"
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __is_htdocs_mounted() {
   WWW_ROOT_DIR="${WWW_ROOT_DIR:-/data/htdocs}"
@@ -1040,7 +1216,6 @@ __is_htdocs_mounted() {
   [ -d "$WWW_ROOT_DIR" ] || mkdir -p "$WWW_ROOT_DIR"
   export WWW_ROOT_DIR="${WWW_ROOT_DIR:-/usr/local/share/httpd/default}"
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __initialize_ssl_certs() {
   [ "$SSL_ENABLED" = "yes" ] && __certbot
@@ -1068,7 +1243,19 @@ __initialize_ssl_certs() {
   fi
   type update-ca-certificates &>/dev/null && update-ca-certificates &>/dev/null
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+__start_php_dev_server() {
+  if [ "$2" = "yes" ]; then
+    if [ -d "/usr/local/share/httpd" ]; then
+      find "/usr/local/share/httpd" -type f -not -path '.git*' -iname '*.php' -exec sed -i 's|[<].*SERVER_ADDR.*[>]|'${CONTAINER_IP4_ADDRESS:-127.0.0.1}'|g' {} \; 2>/dev/null
+      php -S 0.0.0.0:$PHP_DEV_SERVER_PORT -t "/usr/local/share/httpd"
+    fi
+    if ! echo "$1" | grep -q "^/usr/local/share/httpd"; then
+      find "$1" -type f -not -path '.git*' -iname '*.php' -exec sed -i 's|[<].*SERVER_ADDR.*[>]|'${CONTAINER_IP4_ADDRESS:-127.0.0.1}'|g' {} \; 2>/dev/null
+      php -S 0.0.0.0:$PHP_DEV_SERVER_PORT -t "$1"
+    fi
+  fi
+}
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __check_service() {
   if [ "$1" = "check" ]; then
@@ -1077,7 +1264,6 @@ __check_service() {
     exit $?
   fi
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 __switch_to_user() {
   if [ "$RUNAS_USER" = "root" ]; then
@@ -1101,17 +1287,45 @@ __switch_to_user() {
   fi
   export su_exec
 }
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-__initialize_web_health() {
-  local www_dir="${1:-${WWW_ROOT_DIR:-/usr/local/share/httpd/default}}"
-  if [ -d "$www_dir" ]; then
-    __find_replace "REPLACE_CONTAINER_IP4" "${REPLACE_CONTAINER_IP4:-127.0.0.1}" "/usr/local/share/httpd"
-    __find_replace "REPLACE_COPYRIGHT_FOOTER" "${COPYRIGHT_FOOTER:-Copyright 1999 - $(date +'%Y')}" "/usr/local/share/httpd"
-    __find_replace "REPLACE_LAST_UPDATED_ON_MESSAGE" "${LAST_UPDATED_ON_MESSAGE:-$(date +'Last updated on: %Y-%m-%d at %H:%M:%S')}" "/usr/local/share/httpd"
+# usage backup "days" "hours"
+__backup() {
+  local dirs="" backup_dir backup_name backup_exclude runTime cronTime maxDays
+  test -n "$1" && test -z "${1//[0-9]/}" && maxDays="$1" && shift 1 || maxDays="7"
+  test -n "$1" && test -z "${1//[0-9]/}" && cronTime="$1" && shift 1 || cronTime=""
+  local exitCodeP=0
+  local exitStatus=0
+  local pidFile="/run/backup.pid"
+  local logDir="/data/log/backups"
+  maxDays="${BACKUP_MAX_DAYS:-$maxDays}"
+  cronTime="${BACKUP_RUN_CRON:-$cronTime}"
+  backup_dir="$BACKUP_DIR/$(date +'%y/%m')"
+  backup_name="$(date +'%d_%H-%M').tar.gz"
+  backup_exclude="/data/logs $BACKUP_DIR $BACK_EXCLUDE_DIR"
+  [ -d "/data" ] && dirs+="/data "
+  [ -d "/config" ] && dirs+="/config "
+  [ -d "$logDir" ] || mkdir -p "$logDir"
+  [ -d "$backup_dir" ] || mkdir -p "$backup_dir"
+  [ -z "$dirs" ] && echo "BACKUP_DIR is unset" >&2 && return 1
+  [ -f "$pidFile" ] && echo "A backup job is already running" >&2 && return 1
+  echo "$$" >"$pidFile"
+  echo "Starting backup in $(date)" >>"$logDir/$CONTAINER_NAME"
+  tar --exclude $backup_exclude cfvz "$backup_dir/$backup_name" $dirs 2>/dev/stderr >>"$logDir/$CONTAINER_NAME" || exitCodeP=1
+  if [ $exitCodeP -eq 0 ]; then
+    echo "Backup has completed and saved to: $backup_dir/$backup_name"
+    printf '%s\n\n' "Backup has completed on $(date)" >>"$logDir/$CONTAINER_NAME"
+  else
+    __rm "${backup_dir:?}/$backup_name"
+    echo "Backup has failed - log file saved to: $logDir/$CONTAINER_NAME" >&2
+    printf '%s\n\n' "Backup has completed on $(date)" >>"$logDir/$CONTAINER_NAME"
+    exitStatus=1
   fi
+  [ -f "$pidFile" ] && __rm "$pidFile"
+  [ -n "$maxDays" ] && find "$BACKUP_DIR"* -mtime +$maxDays -exec rm -Rf {} \; >/dev/null 2>&1
+  [ -n "$cronTime" ] && runTime=$((cronTime * 3600)) || return $exitStatus
+  sleep $runTime && __backup "$maxDays" "$cronTime"
 }
-
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # set variables from function calls
 export INIT_DATE="${INIT_DATE:-$(date)}"
 export START_SERVICES="${START_SERVICES:-yes}"
@@ -1135,6 +1349,11 @@ export LOCAL_BIN_DIR="${LOCAL_BIN_DIR:-/usr/local/bin}"
 export DEFAULT_DATA_DIR="${DEFAULT_DATA_DIR:-/usr/local/share/template-files/data}"
 export DEFAULT_CONF_DIR="${DEFAULT_CONF_DIR:-/usr/local/share/template-files/config}"
 export DEFAULT_TEMPLATE_DIR="${DEFAULT_TEMPLATE_DIR:-/usr/local/share/template-files/defaults}"
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Backup settings
+export BACKUP_MAX_DAYS="${BACKUP_MAX_DAYS:-}"
+export BACKUP_RUN_CRON="${BACKUP_RUN_CRON:-}"
+export BACKUP_DIR="${BACKUP_DIR:-/data/backups}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CONTAINER_IP4_ADDRESS="${CONTAINER_IP4_ADDRESS:-$(__get_ip4)}"
 CONTAINER_IP6_ADDRESS="${CONTAINER_IP6_ADDRESS:-$(__get_ip6)}"
@@ -1164,10 +1383,7 @@ export ENTRYPOINT_CONFIG_INIT_FILE="${ENTRYPOINT_CONFIG_INIT_FILE:-/config/.dock
 export ENTRYPOINT_DATA_INIT_FILE DATA_DIR_INITIALIZED ENTRYPOINT_CONFIG_INIT_FILE CONFIG_DIR_INITIALIZED
 export ENTRYPOINT_PID_FILE ENTRYPOINT_INIT_FILE ENTRYPOINT_FIRST_RUN
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# export the enhanced functions
-export -f __get_pid __start_init_scripts __is_running __certbot __update_ssl_certs __create_ssl_cert __no_exit
-export -f __setup_directories __fix_permissions __create_service_user __set_user_group_id __switch_to_user
-export -f __initialize_replace_variables __initialize_system_etc __initialize_config_dir __initialize_data_dir
-export -f __initialize_default_templates __initialize_custom_bin_dir __is_htdocs_mounted __initialize_ssl_certs
+# export the functions
+export -f __get_pid __start_init_scripts __is_running __certbot __update_ssl_certs __create_ssl_cert __no_exit __auto_detect_services
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# end of enhanced functions
+# end of functions
