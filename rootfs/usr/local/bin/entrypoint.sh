@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-##@Version           :  202410090741-git
+##@Version           :  202509161149-git
 # @@Author           :  Jason Hempstead
 # @@Contact          :  jason@casjaysdev.pro
-# @@License          :  WTFPL
+# @@License          :  LICENSE.md
 # @@ReadME           :  entrypoint.sh --help
-# @@Copyright        :  Copyright: (c) 2024 Jason Hempstead, Casjays Developments
-# @@Created          :  Wednesday, Oct 09, 2024 07:41 EDT
+# @@Copyright        :  Copyright: (c) 2025 Jason Hempstead, Casjays Developments
+# @@Created          :  Tuesday, Sep 16, 2025 11:49 EDT
 # @@File             :  entrypoint.sh
 # @@Description      :  Entrypoint file for nginx
 # @@Changelog        :  New script
@@ -18,7 +18,13 @@
 # @@sudo/root        :  no
 # @@Template         :  other/docker-entrypoint
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# shellcheck disable=SC1003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317
+# shellcheck disable=SC1001,SC1003,SC2001,SC2003,SC2016,SC2031,SC2120,SC2155,SC2199,SC2317,SC2329
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+set -e
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# run trap command on exit
+trap 'echo "❌ Fatal error, killing container"; kill -TERM 1' ERR
+trap 'retVal=$?;[ "$SERVICE_IS_RUNNING" != "yes" ] && [ -f "$SERVICE_PID_FILE" ] && rm -Rf "$SERVICE_PID_FILE";exit $retVal' SIGINT SIGTERM SIGPWR
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # setup debugging - https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
 [ -f "/config/.debug" ] && [ -z "$DEBUGGER_OPTIONS" ] && export DEBUGGER_OPTIONS="$(<"/config/.debug")" || DEBUGGER_OPTIONS="${DEBUGGER_OPTIONS:-}"
@@ -51,7 +57,7 @@ case "$1" in
 -h | --help)
   shift 1
   echo 'Docker container for '$CONTAINER_NAME''
-  echo "Usage: $CONTAINER_NAME [cron exec start init shell certbot ssl procs ports healthcheck backup command]"
+  echo "Usage: $CONTAINER_NAME [help tail cron exec start init shell certbot ssl procs ports healthcheck backup command]"
   echo ""
   exit 0
   ;;
@@ -72,23 +78,27 @@ unset set_env
 # User to use to launch service - IE: postgres
 RUNAS_USER="root" # normally root
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# User and group in which the service switches to - IE: nginx,apache,mysql,postgres
-SERVICE_USER="nginx"  # execute command as another user
-SERVICE_GROUP="nginx" # Set the service group
+# Set user and group from env
+SERVICE_USER="${PUID:-$SERVICE_USER}"
+SERVICE_GROUP="${PGID:-$SERVICE_GROUP}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Set user and group ID
-SERVICE_UID="0" # set the user id
-SERVICE_GID="0" # set the group id
+SERVICE_UID="${SERVICE_UID:-0}" # set the user id
+SERVICE_GID="${SERVICE_GID:-0}" # set the group id
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Primary server port- will be added to server ports
-WEB_SERVER_PORT="" # port : 80,443
+# User and group in which the service switches to - IE: nginx,apache,mysql,postgres
+SERVICE_USER="${SERVICE_USER:-$nginx}"  # execute command as another user
+SERVICE_GROUP="${SERVICE_GROUP:-nginx}" # Set the service group
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Secondary ports
 SERVER_PORTS="" # specifiy other ports
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Primary server port- will be added to server ports
+WEB_SERVER_PORT="" # port : 80,443
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Healthcheck variables
 HEALTH_ENABLED="yes" # enable healthcheck [yes/no]
-SERVICES_LIST="tini,nginx"
+SERVICES_LIST="tini" # comma seperated list of processes for the healthcheck
 HEALTH_ENDPOINTS=""  # url endpoints: [http://localhost/health,http://localhost/test]
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Update path var
@@ -249,6 +259,8 @@ if [ -f "$ENTRYPOINT_PID_FILE" ]; then
   touch "$ENTRYPOINT_PID_FILE"
 else
   echo "$$" >"$ENTRYPOINT_PID_FILE"
+  # Clean any stale PID files on first run
+  rm -f /run/init.d/*.pid 2>/dev/null || true
 fi
 if [ -f "$ENTRYPOINT_INIT_FILE" ]; then
   ENTRYPOINT_MESSAGE="no" ENTRYPOINT_FIRST_RUN="no"
@@ -280,22 +292,19 @@ if [ "$ENTRYPOINT_FIRST_RUN" != "no" ]; then
     fi
   fi
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  # add .home domain
+  # add .internal domain
   if [ "$UPDATE_FILE_HOSTS" = "yes" ] && [ -n "$HOSTNAME" ]; then
     __grep_test " $HOSTNAME" "/etc/hosts" || __printf_space "40" "${CONTAINER_IP4_ADDRESS:-127.0.0.1}" "$HOSTNAME" >>"/etc/hosts"
-    __grep_test " ${HOSTNAME%%.*}.home" "/etc/hosts" || __printf_space "40" "${CONTAINER_IP4_ADDRESS:-127.0.0.1}" "${HOSTNAME%%.*}.home" >>"/etc/hosts"
+    __grep_test " ${HOSTNAME%%.*}.internal" "/etc/hosts" || __printf_space "40" "${CONTAINER_IP4_ADDRESS:-127.0.0.1}" "${HOSTNAME%%.*}.internal" >>"/etc/hosts"
   fi
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # add domainname
-  if [ "$UPDATE_FILE_HOSTS" = "yes" ] && [ "$DOMAINNAME" != "home" ] && [ -n "$DOMAINNAME" ] && [ "$HOSTNAME.$DOMAINNAME" != "$DOMAINNAME" ]; then
+  if [ "$UPDATE_FILE_HOSTS" = "yes" ] && [ "$DOMAINNAME" != "internal" ] && [ -n "$DOMAINNAME" ] && [ "$HOSTNAME.$DOMAINNAME" != "$DOMAINNAME" ]; then
     __grep_test " ${HOSTNAME%%.*}.$DOMAINNAME" "/etc/hosts" || __printf_space "40" "${CONTAINER_IP4_ADDRESS:-127.0.0.1}" "${HOSTNAME%%.*}.$DOMAINNAME" >>"/etc/hosts"
   fi
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # Set containers hostname
   [ -n "$HOSTNAME" ] && [ "$UPDATE_FILE_HOSTS" = "yes" ] && echo "$HOSTNAME" >"/etc/hostname"
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  # Set containers hostname with domain
-  # [ -n "$DOMAINNAME" ] && [ "$UPDATE_FILE_HOSTS" = "yes" ] && echo "$HOSTNAME.$DOMAINNAME" >"/etc/hostname"
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   if [ -f "/etc/hostname" ]; then
     [ -n "$(type -P hostname)" ] && hostname -F "/etc/hostname" &>/dev/null || HOSTNAME="$(<"/etc/hostname")"
@@ -336,6 +345,7 @@ __initialize_ssl_certs
 if [ -f "$ENTRYPOINT_INIT_FILE" ]; then
   ENTRYPOINT_FIRST_RUN="no"
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -d "/config" ]; then
   echo "Initialized on: $INIT_DATE" >"$ENTRYPOINT_INIT_FILE"
 fi
@@ -344,6 +354,7 @@ fi
 if [ -f "$ENTRYPOINT_DATA_INIT_FILE" ]; then
   DATA_DIR_INITIALIZED="yes"
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -d "/data" ]; then
   echo "Initialized on: $INIT_DATE" >"$ENTRYPOINT_DATA_INIT_FILE"
 fi
@@ -351,6 +362,7 @@ fi
 if [ -f "$ENTRYPOINT_CONFIG_INIT_FILE" ]; then
   CONFIG_DIR_INITIALIZED="yes"
 fi
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 if [ -d "/config" ]; then
   echo "Initialized on: $INIT_DATE" >"$ENTRYPOINT_CONFIG_INIT_FILE"
 fi
@@ -361,12 +373,12 @@ if [ "$ENTRYPOINT_FIRST_RUN" != "no" ]; then
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # if no pid assume container restart - clean stale files on restart
-if [ ! -f "$ENTRYPOINT_PID_FILE" ]; then 
+if [ ! -f "$ENTRYPOINT_PID_FILE" ]; then
   START_SERVICES="yes"
   # Clean stale pid files from previous container runs
-  rm -f /run/__start_init_scripts.pid /run/init.d/*.pid /run/*.pid
+  rm -f /run/__start_init_scripts.pid /run/init.d/*.pid /run/*.pid 2>/dev/null || true
 elif [ ! -f "/run/__start_init_scripts.pid" ]; then
-  START_SERVICES="yes" 
+  START_SERVICES="yes"
 fi
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 [ "$ENTRYPOINT_MESSAGE" = "yes" ] && __printf_space "40" "Container ip address is:" "$CONTAINER_IP4_ADDRESS"
@@ -395,7 +407,7 @@ __run_message
 START_SERVICES="${START_SERVICES:-SYSTEM_INIT}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Start all services if no pidfile
-if [ "$START_SERVICES" = "yes" ] && [ "$1" != "backup" ] && [ "$1" != "healthcheck" ] && [ "$1" != "cron" ] && [ "$1" != "logs" ] && [ "$1" != "cron" ]; then
+if [ "$START_SERVICES" = "yes" ] && [ "$1" != "backup" ] && [ "$1" != "healthcheck" ] && [ "$1" != "cron" ] && [ "$1" != "tail" ] && [ "$1" != "logs" ] && [ "$1" != "cron" ]; then
   [ "$1" = "start" ] && shift 1
   [ "$1" = "all" ] && shift 1
   [ "$1" = "init" ] && export CONTAINER_INIT="yes"
@@ -412,6 +424,25 @@ init)
   shift 1
   echo "Container has been Initialized"
   exit 0
+  ;;
+tail)
+  shift 1
+  case "$1" in
+  null)
+    shift $#
+    tail -F "/dev/null"
+    ;;
+  app)
+    shift $#
+    tail -F /data/logs/*/*.log
+    ;;
+  -*)
+    tail "$@"
+    ;;
+  *)
+    tail -F "${@:-/dev/null}"
+    ;;
+  esac
   ;;
 logs)
   shift 1
@@ -446,14 +477,22 @@ backup)
   ;;
 # Docker healthcheck
 healthcheck)
+  arguments="$*"
   healthStatus=0
-  services="${SERVICES_LIST:-$@}"
   healthEnabled="${HEALTH_ENABLED:-}"
   healthPorts="${WEB_SERVER_PORTS:-}"
   healthEndPoints="${HEALTH_ENDPOINTS:-}"
+  SERVICES_LIST="${arguments:-$SERVICES_LIST}"
+  services="$(echo "${SERVICES_LIST//,/ }")"
   healthMessage="Everything seems to be running"
-  services="${services//,/ }"
   [ "$healthEnabled" = "yes" ] || exit 0
+  if [ -d "/run/healthcheck" ] && [ "$(ls -A "/run/healthcheck" | wc -l)" -ne 0 ]; then
+    for service in /run/healthcheck/*; do
+      name=$(basename -- $service)
+      services+="$name "
+    done
+  fi
+  services="$(echo "$services" | tr ' ' '\n' | sort -u | grep -v '^$')"
   { [ "$1" = "init" ] || [ "$1" = "test" ]; } && exit 0
   for proc in $services; do
     if [ -n "$proc" ]; then
@@ -547,7 +586,6 @@ start)
     elif [ -f "/usr/local/etc/docker/init.d/$1" ]; then
       eval "/usr/local/etc/docker/init.d/$1" &
       __no_exit
-
     fi
   fi
   ;;

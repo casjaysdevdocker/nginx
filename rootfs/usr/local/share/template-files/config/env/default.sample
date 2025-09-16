@@ -113,7 +113,7 @@ DATABASE_DIR_COUCHDB="${DATABASE_DIR_COUCHDB:-$DATABASE_BASE_DIR/couchdb}"
 DATABASE_DIR_SUPABASE="${DATABASE_DIR_SUPABASE:-$DATABASE_BASE_DIR/supabase}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # docker env
-DOCKER_HOST="/run/docker.sock"
+DOCKER_HOST="unix:///run/docker.sock"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # File locations
 ENTRYPOINT_PID_FILE="${ENTRYPOINT_PID_FILE:-/run/init.d/entrypoint.pid}"
