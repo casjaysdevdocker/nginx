@@ -114,8 +114,9 @@ RUN echo "Updating system files "; \
   PHP_BIN="$(command -v ${PHP_VERSION} 2>/dev/null || true)"; \
   PHP_FPM="$(ls /usr/*bin/php*fpm* 2>/dev/null || true)"; \
   pip_bin="$(command -v python3 2>/dev/null || command -v python2 2>/dev/null || command -v python 2>/dev/null || true)"; \
-  py_version="$(command $pip_bin --version | sed 's|[pP]ython ||g' | awk -F '.' '{print $1$2}' | grep '[0-9]' || true)"; \
+  py_version="$(command $pip_bin --version 2>/dev/null | sed 
   [ "$py_version" -gt "310" ] && pip_opts="--break-system-packages " || pip_opts=""; \
+  [ -n "$pip_bin" ] && [ -n "$pip_opts" ] && $pip_bin install $pip_opts --upgrade pip 2>/dev/null || true;
   if [ -n "$pip_bin" ];then $pip_bin -m pip install --break-system-packages certbot-dns-rfc2136 certbot-dns-duckdns certbot-dns-cloudflare certbot-nginx $pip_opts || true;fi; \
   [ -f "/usr/share/zoneinfo/${TZ}" ] && ln -sf "/usr/share/zoneinfo/${TZ}" "/etc/localtime" || true; \
   [ -n "$PHP_BIN" ] && [ -z "$(command -v php 2>/dev/null)" ] && ln -sf "$PHP_BIN" "/usr/bin/php" 2>/dev/null || true; \
