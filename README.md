@@ -19,17 +19,17 @@ dockermgr update nginx
 ## Install and run container
   
 ```shell
-mkdir -p "$HOME/.local/share/srv/docker/nginx/rootfs"
+mkdir -p "$HOME/.local/share/srv/docker/nginx/volumes"
 git clone "https://github.com/dockermgr/nginx" "$HOME/.local/share/CasjaysDev/dockermgr/nginx"
-cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/nginx/rootfs/." "$HOME/.local/share/srv/docker/nginx/rootfs/"
+cp -Rfva "$HOME/.local/share/CasjaysDev/dockermgr/nginx/rootfs/." "$HOME/.local/share/srv/docker/nginx/volumes/"
 docker run -d \
 --restart always \
 --privileged \
 --name casjaysdevdocker-nginx \
 --hostname nginx \
 -e TZ=${TIMEZONE:-America/New_York} \
--v "$HOME/.local/share/srv/docker/casjaysdevdocker-nginx/rootfs/data:/data:z" \
--v "$HOME/.local/share/srv/docker/casjaysdevdocker-nginx/rootfs/config:/config:z" \
+-v "$HOME/.local/share/srv/docker/casjaysdevdocker-nginx/volumes/data:/data:z" \
+-v "$HOME/.local/share/srv/docker/casjaysdevdocker-nginx/volumes/config:/config:z" \
 -p 80:80 \
 casjaysdevdocker/nginx:latest
 ```
@@ -46,8 +46,8 @@ services:
       - TZ=America/New_York
       - HOSTNAME=nginx
     volumes:
-      - "$HOME/.local/share/srv/docker/casjaysdevdocker-nginx/rootfs/data:/data:z"
-      - "$HOME/.local/share/srv/docker/casjaysdevdocker-nginx/rootfs/config:/config:z"
+      - "$HOME/.local/share/srv/docker/casjaysdevdocker-nginx/volumes/data:/data:z"
+      - "$HOME/.local/share/srv/docker/casjaysdevdocker-nginx/volumes/config:/config:z"
     ports:
       - 80:80
     restart: always
