@@ -46,7 +46,7 @@ __script_exit() {
 SCRIPT_NAME="$(basename -- "$SCRIPT_FILE" 2>/dev/null)"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # exit if __start_init_scripts function hasn't been Initialized
-if [ ! -f "/run/__start_init_scripts.pid" ]; then
+if [ ! -f "/run/.start_init_scripts.pid" ]; then
 	echo "__start_init_scripts function hasn't been Initialized" >&2
 	SERVICE_IS_RUNNING="no"
 	__script_exit 1
